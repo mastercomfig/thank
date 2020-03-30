@@ -1,5 +1,6 @@
 import discord
 from fuzzywuzzy import fuzz
+import os
 
 client = discord.Client()
 
@@ -96,4 +97,4 @@ def get_thankness(text, *keywords):
     return thankness / max_thankness
 
 
-client.run('TOKEN')
+client.run(os.environ['THANK_TOKEN'])
