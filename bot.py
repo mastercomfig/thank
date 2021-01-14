@@ -59,15 +59,15 @@ async def on_message(message):
 
 @client.event
 async def on_message_delete(message):
-    delete_from_message(message)
+    await delete_from_message(message)
 
 
 @client.event
 async def on_message_edit(before, after):
-    delete_from_message(before)
+    await delete_from_message(before)
 
 
-def delete_from_message(message):
+async def delete_from_message(message):
     if message.author == client.user or message.author.bot:
         return
 
