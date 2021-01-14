@@ -74,7 +74,7 @@ def delete_from_message(message):
     thank_msg = thank_pairs[message.guild.id].get(message.id)
 
     if thank_msg is not None:
-        client.delete_message(thank_msg)
+        await thank_msg.delete()
 
 
 def get_thankness(text, *keywords):
