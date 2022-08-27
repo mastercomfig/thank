@@ -9,7 +9,7 @@ intents = Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-THANKING_WORDS = ["thank", "vroom", "zoom", "7"]
+THANKING_WORDS = ["thank", "vroom", "zoom", "nyoom"]
 client.thank_channels = []
 client.thank_pairs = {}
 
@@ -43,8 +43,11 @@ async def on_message(message):
 
     text = message.content
 
+    if not text:
+        return
+
     if message.channel in client.thank_channels:
-        if get_thankness(text, THANKING_WORDS) > 0.85:
+        if get_thankness(text, THANKING_WORDS) > 0.7:
             thank_msg = await message.channel.send(message.content.lower())
             client.thank_pairs[message.guild.id][message.id] = thank_msg
 
@@ -86,7 +89,7 @@ def get_thankness(text, keywords):
     if max_thankness < 1:
         return 0
 
-    return thankness / max_thankness
+    return thankness * max_thankness
 
 
 client.run(os.environ['THANK_TOKEN'])
