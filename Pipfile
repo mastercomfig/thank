@@ -6,11 +6,8 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-"discord.py" = "*"
+discord = "*"
+thefuzz = {extras = ["speedup"], version = "*"}
 
 [requires]
-python_version = "3.9"
-
-[packages.fuzzywuzzy]
-extras = [ "speedup",]
-version = "*"
+python_version = "3.10"

@@ -1,14 +1,17 @@
-import discord
-from fuzzywuzzy import fuzz
 import os
 
-client = discord.Client()
+import discord
 
-thanking_words = ["thank", "vroom", "zoom", "7"]
-thank_channels = []
-thank_proxy_channels = []
-thank_proxy_pairs = {}
-thank_pairs = {}
+from discord import Intents
+from thefuzz import fuzz
+
+intents = Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+
+THANKING_WORDS = ["thank", "vroom", "zoom", "7"]
+client.thank_channels = []
+client.thank_pairs = {}
 
 
 @client.event
@@ -22,18 +25,9 @@ def collect_from_guild(guild):
     if thank_channel is None:
         return
 
-    thank_channels.append(thank_channel)
+    client.thank_channels.append(thank_channel)
 
-    thank_pairs[guild.id] = {}
-
-    thank_proxy_channel = discord.utils.find(lambda c: c.name == 'thank-proxy', guild.channels)
-
-    if thank_proxy_channel is None:
-        return
-
-    thank_proxy_channels.append(thank_proxy_channel)
-
-    thank_proxy_pairs[thank_proxy_channel.id] = thank_channel
+    client.thank_pairs[guild.id] = {}
 
 
 @client.event
@@ -49,12 +43,10 @@ async def on_message(message):
 
     text = message.content
 
-    if message.channel in thank_channels:
-        if get_thankness(text, *thanking_words) > 85:
+    if message.channel in client.thank_channels:
+        if get_thankness(text, THANKING_WORDS) > 0.85:
             thank_msg = await message.channel.send(message.content.lower())
-            thank_pairs[message.guild.id][message.id] = thank_msg
-    elif message.channel in thank_proxy_channels:
-        await thank_proxy_pairs[message.channel.id].send(message.content)
+            client.thank_pairs[message.guild.id][message.id] = thank_msg
 
 
 @client.event
@@ -71,13 +63,13 @@ async def delete_from_message(message):
     if message.author == client.user or message.author.bot:
         return
 
-    thank_msg = thank_pairs[message.guild.id].get(message.id)
+    thank_msg = client.thank_pairs[message.guild.id].get(message.id)
 
     if thank_msg is not None:
         await thank_msg.delete()
 
 
-def get_thankness(text, *keywords):
+def get_thankness(text, keywords):
     thankness = 0
     max_thankness = len(keywords)
 
@@ -85,7 +77,7 @@ def get_thankness(text, *keywords):
         partial = fuzz.partial_ratio(keyword, text)
         if partial > 70:
             # if the phrase fuzzes a keyword, calculate thankness for that keyword
-            thankness += (fuzz.ratio(keyword, text) + partial) / 2
+            thankness += fuzz.ratio(keyword, text) / 100
         else:
             # if we don't have that phrase, don't consider it for calculating our final thankness ratio
             max_thankness -= 1
