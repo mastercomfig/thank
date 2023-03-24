@@ -77,7 +77,7 @@ async def on_message(message: discord.Message):
         return
 
     length = len(message.content)
-    if 1 > length > 250:
+    if 1 > length > 1019:
         return
 
     text = message.content
@@ -137,7 +137,7 @@ def get_thankness(text: str) -> float:
 
     length = len(words)
 
-    if 1 > length > 25:
+    if 1 > length > 170:
         return 0.0
 
     thankness = 0.0
@@ -145,6 +145,9 @@ def get_thankness(text: str) -> float:
     for word in words:
         best = 0.0
         for keyword in THANKING_WORDS:
+            if keyword == word:
+                best = 100.0
+                break
             ratio = fuzz.ratio(keyword, word)
             if ratio > best:
                 best = ratio
