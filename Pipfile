@@ -12,7 +12,7 @@ colorama = {version = "*", sys_platform = "== 'win32'"}
 thefuzz = {extras = ["speedup"], version = "*"}
 aiohttp = "*"
 orjson = "*"
-profanity-check = "*"
+alt-profanity-check = "*"
 
 [requires]
 python_version = "3.11"
