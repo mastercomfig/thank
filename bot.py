@@ -37,7 +37,6 @@ client = discord.Client(
 )
 
 THANKING_WORDS = ["thank", "vroom", "zoom", "nyoom"]
-MAX_THANKNESS = float(len(THANKING_WORDS))
 client.thank_channels = set()
 client.thank_pairs = {}
 
@@ -78,7 +77,7 @@ async def on_message(message: discord.Message):
         return
 
     length = len(message.content)
-    if 0 > length > 500:
+    if 1 > length > 250:
         return
 
     text = message.content
@@ -105,7 +104,7 @@ async def on_message(message: discord.Message):
     if profanity_check.predict([text])[0] > 0.5:
         return
 
-    if get_thankness(text) > 0.7:
+    if get_thankness(text) > 70:
         thank_msg = await message.channel.send(text)
         client.thank_pairs[message.guild.id][message.id] = thank_msg
 
@@ -134,23 +133,25 @@ async def delete_from_message(message: discord.Message):
 
 
 def get_thankness(text: str) -> float:
-    thankness = 0.0
-    max_thankness = MAX_THANKNESS
+    words = text.split()
 
-    for keyword in THANKING_WORDS:
-        partial = fuzz.partial_ratio(keyword, text)
-        if partial > 70:
-            # if the phrase fuzzes a keyword, calculate thankness for that keyword
-            thankness += fuzz.ratio(keyword, text) / 100.0
-        else:
-            # if we don't have that phrase, don't consider it for calculating our final thankness ratio
-            max_thankness -= 1
+    length = len(words)
 
-    # we didn't fuzz any keywords, no thankness
-    if max_thankness < 1:
+    if 1 > length > 25:
         return 0.0
 
-    return thankness * max_thankness
+    thankness = 0.0
+
+    for word in words:
+        best = 0.0
+        for keyword in THANKING_WORDS:
+            ratio = fuzz.ratio(keyword, word)
+            if ratio > best:
+                best = ratio
+        thankness += best
+
+    return thankness
 
 
-client.run(os.environ['THANK_TOKEN'])
+if __name__ == "__main__":
+    client.run(os.environ['THANK_TOKEN'])
