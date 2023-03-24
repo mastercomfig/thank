@@ -150,7 +150,7 @@ def get_thankness(text: str) -> float:
                 best = ratio
         thankness += best
 
-    return thankness
+    return thankness / length
 
 
 if __name__ == "__main__":
