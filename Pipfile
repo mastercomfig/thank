@@ -6,8 +6,13 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-discord = "*"
+"discord.py" = {extras = ["speed"], version = "*"}
+uvloop = {version = "*", sys_platform = "!= 'win32'"}
+colorama = {version = "*", sys_platform = "== 'win32'"}
 thefuzz = {extras = ["speedup"], version = "*"}
+aiohttp = "*"
+orjson = "*"
+profanity-check = "*"
 
 [requires]
 python_version = "3.11"
