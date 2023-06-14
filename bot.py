@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import datetime
 import string
 
 import discord
 import profanity_check
 
+from typing import TYPE_CHECKING
+
 from discord import Intents, AllowedMentions
 from thefuzz import fuzz
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
 
 if os.name == "nt":
     # handle Windows imports
@@ -39,6 +46,33 @@ client = discord.Client(
 THANKING_WORDS = ["thank", "vroom", "zoom", "nyoom"]
 client.thank_channels = set()
 client.thank_pairs = {}
+client.reddit_channels = []
+
+
+class TaskWrapper:
+    def __init__(self, task):
+        self.task = task
+        task.add_done_callback(self.on_task_done)
+
+    def __getattr__(self, name):
+        return getattr(self.task, name)
+
+    def __await__(self):
+        self.task.remove_done_callback(self.on_task_done)
+        return self.task.__await__()
+
+    def on_task_done(self, fut: asyncio.Future):
+        if fut.cancelled() or not fut.done():
+            return
+        fut.result()
+
+    def __str__(self):
+        return f"TaskWrapper<task={self.task}>"
+
+
+def create_task(coro: Coroutine, *, name: str = None) -> TaskWrapper:
+    task = asyncio.create_task(coro, name=name)
+    return TaskWrapper(task)
 
 
 @client.event
@@ -46,18 +80,60 @@ async def on_guild_join(guild: discord.Guild):
     collect_from_guild(guild)
 
 
+def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
+    channel = discord.utils.find(lambda c: c.name == channel_name, guild.channels)
+
+    if channel is None:
+        return None
+
+    if not isinstance(channel, discord.TextChannel):
+        return None
+
+    return channel
+
+
 def collect_from_guild(guild: discord.Guild):
-    thank_channel = discord.utils.find(lambda c: c.name == 'thank', guild.channels)
+    thank_channel = collect_channel_from_guild(guild, 'thank')
 
-    if thank_channel is None:
-        return
-
-    if not isinstance(thank_channel, discord.TextChannel):
-        return
-
-    client.thank_channels.add(thank_channel)
+    if thank_channel:
+        client.thank_channels.add(thank_channel)
 
     client.thank_pairs[guild.id] = {}
+
+    reddit_channel = collect_channel_from_guild(guild, 'redd it')
+    if reddit_channel:
+        client.reddit_channels.append(reddit_channel)
+
+
+window = datetime.timedelta(hours=1)
+
+
+async def clear_reddit_channels():
+    clear_time = datetime.datetime.now(tz=datetime.timezone.utc) - window
+    for channel in client.reddit_channels:
+        messages = True
+        tries = 3
+        while messages:
+            try:
+                messages = await channel.purge(before=clear_time, oldest_first=True, reason="reddit")
+            except:
+                tries -= 1
+                if tries <= 0:
+                    break
+            asyncio.sleep(0.5)
+
+
+clear_interval = 60 * 10
+
+
+async def reddit_clear_job():
+    while True:
+        await clear_reddit_channels()
+        await asyncio.sleep(clear_interval)
+
+
+def schedule_reddit_clear():
+    create_task(reddit_clear_job(), name="Reddit Clear Job")
 
 
 @client.event
@@ -65,8 +141,13 @@ async def on_ready():
     for guild in client.guilds:
         collect_from_guild(guild)
 
+    schedule_reddit_clear()
+
+    print("Ready.")
+
 
 bad_chars = set('/{}\\%$[]#()-=<>|^@`*_')
+
 
 @client.event
 async def on_message(message: discord.Message):
