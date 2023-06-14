@@ -100,7 +100,7 @@ def collect_from_guild(guild: discord.Guild):
 
     client.thank_pairs[guild.id] = {}
 
-    reddit_channel = collect_channel_from_guild(guild, 'redd it')
+    reddit_channel = collect_channel_from_guild(guild, 'reddit')
     if reddit_channel:
         client.reddit_channels.append(reddit_channel)
 
