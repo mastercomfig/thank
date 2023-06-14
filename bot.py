@@ -120,7 +120,7 @@ async def clear_reddit_channels():
                 tries -= 1
                 if tries <= 0:
                     break
-            asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
 
 clear_interval = 60 * 10
