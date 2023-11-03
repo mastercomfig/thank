@@ -81,7 +81,7 @@ async def on_guild_join(guild: discord.Guild):
 
 
 def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
-    channel = discord.utils.find(lambda c: c.name == channel_name, guild.channels)
+    channel = discord.utils.find(lambda c: c.name.startswith(channel_name), guild.channels)
 
     if channel is None:
         return None
@@ -116,7 +116,8 @@ async def clear_reddit_channels():
         while messages:
             try:
                 messages = await channel.purge(before=clear_time, oldest_first=True, reason="reddit")
-            except:
+            except Exception as e:
+                print(e)
                 tries -= 1
                 if tries <= 0:
                     break
