@@ -43,7 +43,7 @@ client = discord.Client(
     allowed_mentions=mentions,
 )
 
-THANKING_WORDS = ["thank", "vroom", "zoom", "nyoom"]
+THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
 client.thank_channels = set()
 client.thank_pairs = {}
 client.reddit_channels = []
@@ -93,7 +93,7 @@ def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
 
 
 def collect_from_guild(guild: discord.Guild):
-    thank_channel = collect_channel_from_guild(guild, 'thank')
+    thank_channel = collect_channel_from_guild(guild, 'thamk')
 
     if thank_channel:
         client.thank_channels.add(thank_channel)
@@ -187,7 +187,7 @@ async def on_message(message: discord.Message):
         return
 
     if get_thankness(text) > 70:
-        thank_msg = await message.channel.send(text)
+        thank_msg = await message.channel.send(text.replace("n", "m"))
         client.thank_pairs[message.guild.id][message.id] = thank_msg
 
 
