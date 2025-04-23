@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import datetime
+import os
 import string
+from typing import TYPE_CHECKING
 
 import discord
 import profanity_check
-
-from typing import TYPE_CHECKING
-
-from discord import Intents, AllowedMentions
+from discord import AllowedMentions, Intents
 from thefuzz import fuzz
 
 if TYPE_CHECKING:
@@ -81,7 +79,9 @@ async def on_guild_join(guild: discord.Guild):
 
 
 def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
-    channel = discord.utils.find(lambda c: c.name.startswith(channel_name), guild.channels)
+    channel = discord.utils.find(
+        lambda c: c.name.startswith(channel_name), guild.channels
+    )
 
     if channel is None:
         return None
@@ -93,14 +93,14 @@ def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
 
 
 def collect_from_guild(guild: discord.Guild):
-    thank_channel = collect_channel_from_guild(guild, 'thamk')
+    thank_channel = collect_channel_from_guild(guild, "thamk")
 
     if thank_channel:
         client.thank_channels.add(thank_channel)
 
     client.thank_pairs[guild.id] = {}
 
-    reddit_channel = collect_channel_from_guild(guild, 'reddit')
+    reddit_channel = collect_channel_from_guild(guild, "reddit")
     if reddit_channel:
         client.reddit_channels.append(reddit_channel)
 
@@ -115,7 +115,9 @@ async def clear_reddit_channels():
         tries = 3
         while messages:
             try:
-                messages = await channel.purge(before=clear_time, oldest_first=True, reason="reddit")
+                messages = await channel.purge(
+                    before=clear_time, oldest_first=True, reason="reddit"
+                )
             except Exception as e:
                 print(e)
                 tries -= 1
@@ -147,7 +149,13 @@ async def on_ready():
     print("Ready.")
 
 
-bad_chars = set('/{}\\%$[]#()-=<>|^@`*_')
+bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
+
+THANK_BAIT_USER_ID = os.getenv("THANK_BAIT_USER_ID")
+
+
+async def bait_msg(message: discord.Message):
+    await message.channel.send("bait used to be believable")
 
 
 @client.event
@@ -155,7 +163,9 @@ async def on_message(message: discord.Message):
     if message.author == client.user or message.author.bot:
         return
 
-    if message.channel not in client.thank_channels:
+    is_thank_channel = message.channel in client.thank_channels
+    is_valid_target = message.author.id == THANK_BAIT_USER_ID or is_thank_channel
+    if not is_valid_target:
         return
 
     length = len(message.content)
@@ -164,7 +174,7 @@ async def on_message(message: discord.Message):
 
     text = message.content
 
-    text = ''.join(filter(lambda x: x in string.printable, text))
+    text = "".join(filter(lambda x: x in string.printable, text))
     if not text:
         return
 
@@ -184,6 +194,10 @@ async def on_message(message: discord.Message):
         return
 
     if profanity_check.predict([text])[0] > 0.5:
+        return
+
+    if not is_thank_channel:
+        await bait_msg(message, text)
         return
 
     if get_thankness(text) > 70:
@@ -239,4 +253,4 @@ def get_thankness(text: str) -> float:
 
 
 if __name__ == "__main__":
-    client.run(os.environ['THANK_TOKEN'])
+    client.run(os.environ["THANK_TOKEN"])
