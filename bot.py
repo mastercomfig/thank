@@ -151,7 +151,15 @@ async def on_ready():
 
 bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
 
-THANK_BAIT_USER_ID = os.getenv("THANK_BAIT_USER_ID")
+def interpret_int(txt: str):
+    if not txt:
+        return None
+    try:
+        return int(txt)
+    except ValueError:
+        return None
+
+THANK_BAIT_USER_ID = interpret_int(os.getenv("THANK_BAIT_USER_ID"))
 
 
 async def bait_msg(message: discord.Message):
@@ -163,8 +171,9 @@ async def on_message(message: discord.Message):
     if message.author == client.user or message.author.bot:
         return
 
+    is_bait = message.author.id == (int(THANK_BAIT_USER_ID)
     is_thank_channel = message.channel in client.thank_channels
-    is_valid_target = message.author.id == THANK_BAIT_USER_ID or is_thank_channel
+    is_valid_target = is_bait or is_thank_channel
     if not is_valid_target:
         return
 
@@ -196,7 +205,7 @@ async def on_message(message: discord.Message):
     if profanity_check.predict([text])[0] > 0.5:
         return
 
-    if not is_thank_channel:
+    if is_bait:
         await bait_msg(message, text)
         return
 
