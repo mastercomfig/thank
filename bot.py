@@ -208,7 +208,7 @@ async def on_message(message: discord.Message):
         return
 
     if is_bait:
-        await bait_msg(message, text)
+        await bait_msg(message)
         return
 
     if get_thankness(text) > 70:
