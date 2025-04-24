@@ -151,6 +151,7 @@ async def on_ready():
 
 bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
 
+
 def interpret_int(txt: str):
     if not txt:
         return None
@@ -158,6 +159,7 @@ def interpret_int(txt: str):
         return int(txt)
     except ValueError:
         return None
+
 
 THANK_BAIT_USER_ID = interpret_int(os.getenv("THANK_BAIT_USER_ID"))
 
@@ -171,7 +173,7 @@ async def on_message(message: discord.Message):
     if message.author == client.user or message.author.bot:
         return
 
-    is_bait = message.author.id == (int(THANK_BAIT_USER_ID)
+    is_bait = message.author.id == THANK_BAIT_USER_ID
     is_thank_channel = message.channel in client.thank_channels
     is_valid_target = is_bait or is_thank_channel
     if not is_valid_target:
