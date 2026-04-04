@@ -54,6 +54,12 @@ client = ThankBot(
 )
 
 THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
+FILLER_WORDS = {"you", "so", "much", "very", "a", "lot", "for", "the", "too", "my", "our"}
+EASTER_EGGS = {
+    "good bot": "vroom vroom <3",
+    "bad bot": ":(",
+    "meow": "nyaa",
+}
 
 
 class TaskWrapper:
@@ -307,6 +313,12 @@ async def on_message(message: discord.Message):
         await bait_msg(message)
         return
 
+    easter_egg_reply = EASTER_EGGS.get(text)
+    if easter_egg_reply:
+        thank_msg = await message.channel.send(easter_egg_reply)
+        client.thank_pairs[message.guild.id][message.id] = thank_msg
+        return
+
     if get_thankness(text) > 70:
         thank_msg = await message.channel.send(text.replace("n", "m"))
         client.thank_pairs[message.guild.id][message.id] = thank_msg
@@ -343,7 +355,7 @@ async def delete_from_message(message: discord.Message):
 
 
 def get_thankness(text: str) -> float:
-    words = text.split()
+    words = [w for w in text.split() if w not in FILLER_WORDS]
 
     length = len(words)
 
