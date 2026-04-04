@@ -12,7 +12,7 @@ from discord import AllowedMentions, Intents
 from thefuzz import fuzz
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Coroutine
 
 if os.name == "nt":
     # handle Windows imports
@@ -45,6 +45,8 @@ THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
 client.thank_channels = set()
 client.thank_pairs = {}
 client.reddit_channels = []
+client.help_forums = set()
+client.volunteer_role = None
 
 
 class TaskWrapper:
@@ -78,31 +80,83 @@ async def on_guild_join(guild: discord.Guild):
     collect_from_guild(guild)
 
 
-def collect_channel_from_guild(guild: discord.Guild, channel_name: str):
-    channel = discord.utils.find(
-        lambda c: c.name.startswith(channel_name), guild.channels
-    )
-
-    if channel is None:
+class ChannelCollector:
+    def collect(self, guild: discord.Guild) -> list[discord.abc.GuildChannel] | None:
         return None
 
-    if not isinstance(channel, discord.TextChannel):
-        return None
 
-    return channel
+class ChannelNameCollector(ChannelCollector):
+    def __init__(self, channel_name: str):
+        self.channel_name = channel_name
+
+    def collect(self, guild: discord.Guild) -> list[discord.abc.GuildChannel] | None:
+        channel = discord.utils.find(
+            lambda c: c.name.startswith(self.channel_name), guild.channels
+        )
+        if channel is None:
+            return None
+        return [channel]
+
+
+class ChannelCategoryCollector(ChannelCollector):
+    def __init__(self, category_name: str):
+        self.category_name = category_name
+
+    def collect(self, guild: discord.Guild) -> list[discord.abc.GuildChannel] | None:
+        category = discord.utils.find(
+            lambda c: c.name.startswith(self.category_name), guild.categories
+        )
+        if category is None:
+            return None
+        return category.channels
+
+
+EMPTY_CHANNELS = []
+
+
+def collect_channels_from_guild(
+    guild: discord.Guild,
+    collector: ChannelCollector,
+    channel_type: discord.ChannelType = discord.ChannelType.text,
+) -> list[discord.abc.GuildChannel]:
+    channels = collector.collect(guild)
+
+    if not channels:
+        return EMPTY_CHANNELS
+
+    return [c for c in channels if c.type == channel_type]
+
+
+def collect_channel_from_guild(
+    guild: discord.Guild,
+    collector: ChannelCollector,
+    channel_type: discord.ChannelType = discord.ChannelType.text,
+) -> discord.abc.GuildChannel | None:
+    channels = collect_channels_from_guild(guild, collector, channel_type)
+    if not channels:
+        return None
+    return channels[0]
 
 
 def collect_from_guild(guild: discord.Guild):
-    thank_channel = collect_channel_from_guild(guild, "thamk")
+    thank_channel = collect_channel_from_guild(guild, ChannelNameCollector("thamk"))
 
     if thank_channel:
         client.thank_channels.add(thank_channel)
 
     client.thank_pairs[guild.id] = {}
 
-    reddit_channel = collect_channel_from_guild(guild, "reddit")
+    reddit_channel = collect_channel_from_guild(guild, ChannelNameCollector("reddit"))
     if reddit_channel:
         client.reddit_channels.append(reddit_channel)
+
+    help_forums = collect_channels_from_guild(
+        guild, ChannelCategoryCollector("Help & Support"), discord.ChannelType.forum
+    )
+    if help_forums:
+        client.help_forums.update(help_forums)
+
+    client.volunteer_role = discord.utils.get(guild.roles, name="Volunteer")
 
 
 window = datetime.timedelta(hours=1)
@@ -166,6 +220,24 @@ THANK_BAIT_USER_ID = interpret_int(os.getenv("THANK_BAIT_USER_ID"))
 
 async def bait_msg(message: discord.Message):
     await message.channel.send("bait used to be believable")
+
+
+@client.event
+async def on_thread_create(thread: discord.Thread):
+    if thread.owner.bot:
+        return
+
+    if client.volunteer_role is None:
+        return
+
+    if thread.parent not in client.help_forums:
+        return
+
+    await thread.send(f"""Hello {thread.owner.mention}! I see you need some assistance. Make sure to supply as much detail as possible in your post so that someone may help you at their earliest convenience.
+
+I have also pinged {client.volunteer_role.mention} so that they see your thread and can help you as soon as possible!
+
+Once you're done, tag this thread as :white_check_mark: Solved.""")
 
 
 @client.event
