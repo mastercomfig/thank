@@ -40,7 +40,7 @@ mentions = AllowedMentions.none()
 
 class ThankBot(discord.Client):
     def __init__(self, *args, **kwargs):
-        super().__init__(args, kwargs)
+        super().__init__(*args, **kwargs)
         self.thank_channels: set[discord.TextChannel] = set()
         self.thank_pairs: dict[int, cachetools.TTLCache[int, discord.Message]] = {}
         self.reddit_channels: list[discord.TextChannel] = []
@@ -54,7 +54,19 @@ client = ThankBot(
 )
 
 THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
-FILLER_WORDS = {"you", "so", "much", "very", "a", "lot", "for", "the", "too", "my", "our"}
+FILLER_WORDS = {
+    "you",
+    "so",
+    "much",
+    "very",
+    "a",
+    "lot",
+    "for",
+    "the",
+    "too",
+    "my",
+    "our",
+}
 EASTER_EGGS = {
     "good bot": "vroom vroom <3",
     "bad bot": ":(",
