@@ -255,17 +255,19 @@ async def bait_msg(message: discord.Message):
 
 @client.event
 async def on_thread_create(thread: discord.Thread):
+    if not thread.guild:
+        return
+
     thread_owner = thread.owner
     if thread_owner is None:
-        thread_owner = thread.guild.get_member(thread.guild.owner_id)
+        thread_owner = thread.guild.get_member(thread.owner_id)
+        if not thread_owner:
+            thread_owner = await thread.guild.fetch_member(thread.owner_id)
 
     if thread_owner is None:
         return
 
     if thread_owner == client.user or thread_owner.bot:
-        return
-
-    if not thread.guild:
         return
 
     volunteer_role = client.volunteer_roles.get(thread.guild.id)
@@ -275,11 +277,16 @@ async def on_thread_create(thread: discord.Thread):
     if thread.parent not in client.help_forums:
         return
 
-    await thread.send(f"""Hello {thread.owner.mention}! I see you need some assistance. Make sure to supply as much detail as possible in your post so that someone may help you at their earliest convenience.
+    allowed_mentions = AllowedMentions(users=[thread_owner], roles=[volunteer_role])
+
+    await thread.send(
+        f"""Hello {thread_owner.mention}! I see you need some assistance. Make sure to supply as much detail as possible in your post so that someone may help you at their earliest convenience.
 
 I have also pinged {volunteer_role.mention} so that they see your thread and can help you as soon as possible!
 
-Once you're done, tag this thread as :white_check_mark: Solved.""")
+Once you're done, tag this thread as :white_check_mark: Solved.""",
+        allowed_mentions=allowed_mentions,
+    )
 
 
 @client.event
