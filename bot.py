@@ -6,6 +6,7 @@ import os
 import string
 from typing import TYPE_CHECKING
 
+import cachetools
 import discord
 import profanity_check
 from discord import AllowedMentions, Intents
@@ -36,22 +37,28 @@ intents.message_content = True
 
 mentions = AllowedMentions.none()
 
-client = discord.Client(
+
+class ThankBot(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(args, kwargs)
+        self.thank_channels: set[discord.TextChannel] = set()
+        self.thank_pairs: dict[int, cachetools.TTLCache[int, discord.Message]] = {}
+        self.reddit_channels: list[discord.TextChannel] = []
+        self.help_forums: set[discord.ForumChannel] = set()
+        self.volunteer_roles: dict[int, discord.Role] = {}
+
+
+client = ThankBot(
     intents=intents,
     allowed_mentions=mentions,
 )
 
 THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
-client.thank_channels = set()
-client.thank_pairs = {}
-client.reddit_channels = []
-client.help_forums = set()
-client.volunteer_role = None
 
 
 class TaskWrapper:
-    def __init__(self, task):
-        self.task = task
+    def __init__(self, task: asyncio.Task):
+        self.task: asyncio.Task = task
         task.add_done_callback(self.on_task_done)
 
     def __getattr__(self, name):
@@ -111,9 +118,6 @@ class ChannelCategoryCollector(ChannelCollector):
         return category.channels
 
 
-EMPTY_CHANNELS = []
-
-
 def collect_channels_from_guild(
     guild: discord.Guild,
     collector: ChannelCollector,
@@ -122,7 +126,7 @@ def collect_channels_from_guild(
     channels = collector.collect(guild)
 
     if not channels:
-        return EMPTY_CHANNELS
+        return []
 
     return [c for c in channels if c.type == channel_type]
 
@@ -144,7 +148,10 @@ def collect_from_guild(guild: discord.Guild):
     if thank_channel:
         client.thank_channels.add(thank_channel)
 
-    client.thank_pairs[guild.id] = {}
+    # limit thank message pairs to 1 day and 100 messages
+    client.thank_pairs[guild.id] = cachetools.TTLCache(
+        maxsize=100, ttl=datetime.timedelta(days=1).total_seconds()
+    )
 
     reddit_channel = collect_channel_from_guild(guild, ChannelNameCollector("reddit"))
     if reddit_channel:
@@ -156,7 +163,7 @@ def collect_from_guild(guild: discord.Guild):
     if help_forums:
         client.help_forums.update(help_forums)
 
-    client.volunteer_role = discord.utils.get(guild.roles, name="Volunteer")
+    client.volunteer_roles[guild.id] = discord.utils.get(guild.roles, name="Volunteer")
 
 
 window = datetime.timedelta(hours=1)
@@ -189,8 +196,14 @@ async def reddit_clear_job():
         await asyncio.sleep(clear_interval)
 
 
+reddit_clear_inst: TaskWrapper | None = None
+
+
 def schedule_reddit_clear():
-    create_task(reddit_clear_job(), name="Reddit Clear Job")
+    global reddit_clear_inst
+    if reddit_clear_inst is not None:
+        reddit_clear_inst.task.cancel()
+    reddit_clear_inst = create_task(reddit_clear_job(), name="Reddit Clear Job")
 
 
 @client.event
@@ -224,10 +237,21 @@ async def bait_msg(message: discord.Message):
 
 @client.event
 async def on_thread_create(thread: discord.Thread):
-    if thread.owner.bot:
+    thread_owner = thread.owner
+    if thread_owner is None:
+        thread_owner = thread.guild.get_member(thread.guild.owner_id)
+
+    if thread_owner is None:
         return
 
-    if client.volunteer_role is None:
+    if thread_owner == client.user or thread_owner.bot:
+        return
+
+    if not thread.guild:
+        return
+
+    volunteer_role = client.volunteer_roles.get(thread.guild.id)
+    if volunteer_role is None:
         return
 
     if thread.parent not in client.help_forums:
@@ -235,7 +259,7 @@ async def on_thread_create(thread: discord.Thread):
 
     await thread.send(f"""Hello {thread.owner.mention}! I see you need some assistance. Make sure to supply as much detail as possible in your post so that someone may help you at their earliest convenience.
 
-I have also pinged {client.volunteer_role.mention} so that they see your thread and can help you as soon as possible!
+I have also pinged {volunteer_role.mention} so that they see your thread and can help you as soon as possible!
 
 Once you're done, tag this thread as :white_check_mark: Solved.""")
 
@@ -252,7 +276,7 @@ async def on_message(message: discord.Message):
         return
 
     length = len(message.content)
-    if 1 > length > 1019:
+    if length < 1 or length > 1019:
         return
 
     text = message.content
@@ -302,7 +326,14 @@ async def delete_from_message(message: discord.Message):
     if message.author == client.user or message.author.bot:
         return
 
-    thank_msg = client.thank_pairs[message.guild.id].get(message.id)
+    if not message.guild:
+        return
+
+    guild_pairs = client.thank_pairs.get(message.guild.id)
+    if not guild_pairs:
+        return
+
+    thank_msg = guild_pairs.pop(message.id, None)
 
     if thank_msg is not None:
         try:
@@ -316,7 +347,7 @@ def get_thankness(text: str) -> float:
 
     length = len(words)
 
-    if 1 > length > 170:
+    if length < 1 or length > 170:
         return 0.0
 
     thankness = 0.0

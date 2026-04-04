@@ -13,6 +13,7 @@ thefuzz = {extras = ["speedup"], version = "*"}
 aiohttp = "*"
 orjson = "*"
 alt-profanity-check = "*"
+cachetools = "*"
 
 [requires]
 python_version = "3.11"
