@@ -277,6 +277,13 @@ async def on_thread_create(thread: discord.Thread):
     if thread.parent not in client.help_forums:
         return
 
+    # wait for starter_message
+    while not thread.starter_message:
+        # wait 2 seconds
+        await asyncio.sleep(2)
+        # make sure message is fetched
+        await thread.fetch_message(thread.id)
+
     allowed_mentions = AllowedMentions(users=[thread_owner], roles=[volunteer_role])
 
     await thread.send(
