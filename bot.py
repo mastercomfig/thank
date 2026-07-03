@@ -64,6 +64,7 @@ class ThankBot(discord.Client):
             datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
         )
         self.latest_ping_messages: dict[int, discord.Message] = {}
+        self.ended_session_messages: dict[int, discord.Message] = {}
 
 
 client = ThankBot(
@@ -330,19 +331,21 @@ async def comtress_check_job():
                             if client.zero_players_since is None:
                                 client.zero_players_since = now
 
-                            # Delete existing ping messages on quiet time
-                            for guild_id, message in list(
-                                client.latest_ping_messages.items()
-                            ):
+                            # Edit existing active messages to show session ended (and remove embed)
+                            for guild_id, message in list(client.latest_ping_messages.items()):
                                 if message:
                                     try:
-                                        await message.delete()
+                                        ended_msg = await message.edit(
+                                            content="The play session has ended.",
+                                            embed=None,
+                                            allowed_mentions=discord.AllowedMentions.none()
+                                        )
+                                        if ended_msg:
+                                            client.ended_session_messages[guild_id] = ended_msg
                                     except discord.errors.NotFound:
                                         pass
                                     except Exception as e:
-                                        print(
-                                            f"Error deleting ping message in guild {guild_id}: {e}"
-                                        )
+                                        print(f"Error editing message to ended in guild {guild_id}: {e}")
                             client.latest_ping_messages.clear()
                         else:
                             # We have active players!
@@ -389,6 +392,7 @@ async def comtress_check_job():
                                 if channel and comtress_players:
                                     message = client.latest_ping_messages.get(guild.id)
                                     send_ping = False
+                                    message_to_delete = None
 
                                     # If message exists:
                                     if message:
@@ -405,10 +409,7 @@ async def comtress_check_job():
                                                 )
                                             )
                                             if is_silent and not recently_pinged:
-                                                try:
-                                                    await message.delete()
-                                                except discord.errors.NotFound:
-                                                    pass
+                                                message_to_delete = message
                                                 message = None
                                                 send_ping = True
                                             else:
@@ -451,6 +452,24 @@ async def comtress_check_job():
                                                 client.latest_ping_messages[
                                                     guild.id
                                                 ] = new_msg
+                                                
+                                                if message_to_delete:
+                                                    try:
+                                                        await message_to_delete.delete()
+                                                    except discord.errors.NotFound:
+                                                        pass
+                                                    except Exception as e:
+                                                        print(f"Error deleting old silent message: {e}")
+                                                
+                                                ended_msg = client.ended_session_messages.pop(guild.id, None)
+                                                if ended_msg:
+                                                    try:
+                                                        await ended_msg.delete()
+                                                    except discord.errors.NotFound:
+                                                        pass
+                                                    except Exception as e:
+                                                        print(f"Error deleting old ended session message: {e}")
+                                                        
                                         except Exception as e:
                                             print(
                                                 f"Error sending ping message in guild {guild.id}: {e}"
