@@ -208,7 +208,7 @@ def collect_from_guild(guild: discord.Guild):
     client.volunteer_roles[guild.id] = discord.utils.get(guild.roles, name="Volunteer")
 
     comtress_general = collect_channel_from_guild(
-        guild, ChannelNameCollector("comtress-general")
+        guild, ChannelNameCollector("tc2-discussion")
     )
     if comtress_general:
         client.comtress_general_channels[guild.id] = comtress_general
