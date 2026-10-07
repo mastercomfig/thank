@@ -8,7 +8,7 @@ import aiohttp
 import discord
 import git
 
-DATA_DIR = Path("rag_data")
+DATA_DIR = Path(__file__).resolve().parent.parent / "rag_data"
 ARCHIVED_LOGS_DIR = DATA_DIR / "archived_logs"
 LIVE_LOGS_DIR = DATA_DIR / "live_logs"
 REPO_DIR = DATA_DIR / "repo_cache"

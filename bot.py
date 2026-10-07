@@ -311,8 +311,34 @@ def get_flag_emoji(country_code: str) -> str:
     return "".join(chr(ord(c) + 127397) for c in country_code.upper())
 
 
+async def cleanup_ended_session_messages(target_guild: discord.Guild | None = None):
+    guilds = [target_guild] if target_guild else client.guilds
+    for guild in guilds:
+        channel = client.comtress_general_channels.get(guild.id)
+        if channel and client.user:
+            try:
+                async for history_msg in channel.history():
+                    if (
+                        history_msg.author.id == client.user.id
+                        and history_msg.content == "The play session has ended."
+                    ):
+                        try:
+                            await history_msg.delete()
+                        except discord.errors.NotFound:
+                            pass
+                        except Exception as e:
+                            print(
+                                f"Error deleting ended session message in guild {guild.id}: {e}"
+                            )
+            except Exception as e:
+                print(
+                    f"Error cleaning up ended session messages in guild {guild.id}: {e}"
+                )
+
+
 async def comtress_check_job():
     await client.wait_until_ready()
+    await cleanup_ended_session_messages()
     headers = {"User-Agent": "ComtressPlayerCheckerBot/1.0"}
     async with aiohttp.ClientSession(headers=headers) as session:
         while not client.is_closed():
@@ -332,20 +358,45 @@ async def comtress_check_job():
                                 client.zero_players_since = now
 
                             # Edit existing active messages to show session ended (and remove embed)
-                            for guild_id, message in list(client.latest_ping_messages.items()):
+                            for guild in client.guilds:
+                                message = client.latest_ping_messages.get(guild.id)
+                                if not message:
+                                    channel = client.comtress_general_channels.get(
+                                        guild.id
+                                    )
+                                    if channel and client.user:
+                                        try:
+                                            async for history_msg in channel.history():
+                                                if (
+                                                    history_msg.author.id
+                                                    == client.user.id
+                                                    and history_msg.embeds
+                                                    and history_msg.embeds[0].title
+                                                    == "Active Team Comtress 2 Servers"
+                                                ):
+                                                    message = history_msg
+                                                    break
+                                        except Exception as e:
+                                            print(
+                                                f"Error searching channel history for active session message: {e}"
+                                            )
                                 if message:
                                     try:
                                         ended_msg = await message.edit(
                                             content="The play session has ended.",
                                             embed=None,
-                                            allowed_mentions=discord.AllowedMentions.none()
+                                            allowed_mentions=discord.AllowedMentions.none(),
                                         )
                                         if ended_msg:
-                                            client.ended_session_messages[guild_id] = ended_msg
+                                            client.ended_session_messages[guild.id] = (
+                                                ended_msg
+                                            )
                                     except discord.errors.NotFound:
                                         pass
                                     except Exception as e:
-                                        print(f"Error editing message to ended in guild {guild_id}: {e}")
+                                        print(
+                                            f"Error editing message to ended in guild {guild.id}: {e}"
+                                        )
                             client.latest_ping_messages.clear()
                         else:
                             # We have active players!
@@ -391,6 +442,26 @@ async def comtress_check_job():
                                 )
                                 if channel and comtress_players:
                                     message = client.latest_ping_messages.get(guild.id)
+                                    if not message and client.user:
+                                        try:
+                                            async for history_msg in channel.history():
+                                                if (
+                                                    history_msg.author.id
+                                                    == client.user.id
+                                                    and history_msg.embeds
+                                                    and history_msg.embeds[0].title
+                                                    == "Active Team Comtress 2 Servers"
+                                                ):
+                                                    message = history_msg
+                                                    client.latest_ping_messages[
+                                                        guild.id
+                                                    ] = message
+                                                    break
+                                        except Exception as e:
+                                            print(
+                                                f"Error searching channel history for active session message: {e}"
+                                            )
+
                                     send_ping = False
                                     message_to_delete = None
 
@@ -452,24 +523,24 @@ async def comtress_check_job():
                                                 client.latest_ping_messages[
                                                     guild.id
                                                 ] = new_msg
-                                                
+
                                                 if message_to_delete:
                                                     try:
                                                         await message_to_delete.delete()
                                                     except discord.errors.NotFound:
                                                         pass
                                                     except Exception as e:
-                                                        print(f"Error deleting old silent message: {e}")
-                                                
-                                                ended_msg = client.ended_session_messages.pop(guild.id, None)
-                                                if ended_msg:
-                                                    try:
-                                                        await ended_msg.delete()
-                                                    except discord.errors.NotFound:
-                                                        pass
-                                                    except Exception as e:
-                                                        print(f"Error deleting old ended session message: {e}")
-                                                        
+                                                        print(
+                                                            f"Error deleting old silent message: {e}"
+                                                        )
+
+                                                client.ended_session_messages.pop(
+                                                    guild.id, None
+                                                )
+                                                await cleanup_ended_session_messages(
+                                                    guild
+                                                )
+
                                         except Exception as e:
                                             print(
                                                 f"Error sending ping message in guild {guild.id}: {e}"

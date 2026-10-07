@@ -276,7 +276,7 @@ RELEASE_PROCESSOR_VERSION = 1
 
 
 def process_github_releases(vectorstore, cache):
-    releases_file = Path("rag_data/github_releases.json")
+    releases_file = DATA_DIR / "github_releases.json"
     if not releases_file.exists():
         return
 
