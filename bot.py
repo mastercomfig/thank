@@ -62,6 +62,7 @@ class ThankBot(discord.Client):
         self.comtress_players_roles: dict[int, discord.Role] = {}
         self.comtress_testers_roles: dict[int, discord.Role] = {}
         self.restricted_roles: dict[int, discord.Role] = {}
+        self.member_info_channels: dict[int, discord.TextChannel] = {}
         self.zero_players_since: datetime.datetime | None = (
             datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
         )
@@ -229,6 +230,12 @@ def collect_from_guild(guild: discord.Guild):
     restricted_role = discord.utils.find(lambda r: r.name == "Restricted", guild.roles)
     if restricted_role:
         client.restricted_roles[guild.id] = restricted_role
+
+    member_info_channel = collect_channel_from_guild(
+        guild, ChannelNameCollector("member-info")
+    )
+    if member_info_channel:
+        client.member_info_channels[guild.id] = member_info_channel
 
 
 window = datetime.timedelta(hours=1)
@@ -672,17 +679,37 @@ async def on_member_join(member: discord.Member):
     except discord.HTTPException as e:
         print(f"Failed to assign Restricted role to {member}: {e}")
 
+    dm_failed = False
     try:
         await member.send(
             f"Welcome to **{guild.name}**!\n\n"
-            f"To access the server, please complete verification within 10 minutes:\n"
+            f"To access the server, please complete verification within {VERIFICATION_TIMEOUT_MINUTES} minutes:\n"
             f"{VERIFICATION_FORM_URL}"
         )
     except discord.Forbidden:
-        # User has DMs disabled or bot is blocked
-        pass
+        dm_failed = True
     except discord.HTTPException as e:
         print(f"Failed to DM verification info to {member}: {e}")
+        dm_failed = True
+
+    if dm_failed:
+        member_info_channel = client.member_info_channels.get(guild.id)
+        if member_info_channel:
+            try:
+                allowed_mentions = AllowedMentions(users=[member])
+                await member_info_channel.send(
+                    f"Welcome {member.mention}! To access **{guild.name}**, please complete verification within {VERIFICATION_TIMEOUT_MINUTES} minutes:\n"
+                    f"{VERIFICATION_FORM_URL}",
+                    allowed_mentions=allowed_mentions,
+                )
+            except discord.Forbidden:
+                print(
+                    f"Missing permissions to send verification message in {member_info_channel.name} ({guild.name})."
+                )
+            except discord.HTTPException as e:
+                print(
+                    f"Failed to send verification message in {member_info_channel.name} ({guild.name}): {e}"
+                )
 
 
 bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
