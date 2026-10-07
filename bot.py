@@ -44,6 +44,7 @@ intents = Intents.none()
 intents.guilds = True
 intents.guild_messages = True
 intents.message_content = True
+intents.members = True
 
 mentions = AllowedMentions.none()
 
@@ -60,6 +61,7 @@ class ThankBot(discord.Client):
         self.comtress_general_channels: dict[int, discord.TextChannel] = {}
         self.comtress_players_roles: dict[int, discord.Role] = {}
         self.comtress_testers_roles: dict[int, discord.Role] = {}
+        self.restricted_roles: dict[int, discord.Role] = {}
         self.zero_players_since: datetime.datetime | None = (
             datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
         )
@@ -73,6 +75,10 @@ client = ThankBot(
 )
 
 db = TinyDB("thanks_db.json")
+
+VERIFICATION_TIMEOUT_MINUTES = 10
+VERIFICATION_TIMEOUT = datetime.timedelta(minutes=VERIFICATION_TIMEOUT_MINUTES)
+VERIFICATION_FORM_URL = "https://dyno.gg/form/1750593f"
 
 THANKING_WORDS = ["thamk", "vroom", "zoom", "nyoom"]
 FILLER_WORDS = {
@@ -220,6 +226,10 @@ def collect_from_guild(guild: discord.Guild):
         guild.roles, name="Comtress Testers"
     )
 
+    restricted_role = discord.utils.find(lambda r: r.name == "Restricted", guild.roles)
+    if restricted_role:
+        client.restricted_roles[guild.id] = restricted_role
+
 
 window = datetime.timedelta(hours=1)
 
@@ -246,7 +256,7 @@ clear_interval = 60 * 10
 
 
 async def reddit_clear_job():
-    while True:
+    while not client.is_closed():
         await clear_reddit_channels()
         await asyncio.sleep(clear_interval)
 
@@ -568,6 +578,67 @@ def schedule_comtress_check():
     comtress_check_inst = create_task(comtress_check_job(), name="Comtress Check Job")
 
 
+async def check_restricted_members():
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    for guild in client.guilds:
+        restricted_role = client.restricted_roles.get(guild.id)
+        if not restricted_role:
+            continue
+
+        for member in list(restricted_role.members):
+            if member.bot:
+                continue
+
+            restricted_start = member.joined_at or now
+
+            time_restricted = now - restricted_start
+            if time_restricted >= VERIFICATION_TIMEOUT:
+                try:
+                    await member.send(
+                        f"You have been removed from **{guild.name}** because you did not complete verification within {VERIFICATION_TIMEOUT_MINUTES} minutes.\n"
+                        f"You may rejoin when you are ready to complete verification: {VERIFICATION_FORM_URL}"
+                    )
+                except discord.HTTPException:
+                    pass
+
+                try:
+                    await member.kick(reason="Verification timeout")
+                except discord.Forbidden:
+                    print(
+                        f"Missing permissions to kick {member} ({member.id}) from {guild.name}."
+                    )
+                except discord.HTTPException as e:
+                    print(
+                        f"Failed to kick {member} ({member.id}) from {guild.name}: {e}"
+                    )
+
+
+restricted_check_interval = 30
+
+
+async def restricted_check_job():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        try:
+            await check_restricted_members()
+        except Exception as e:
+            print(f"Error checking restricted members: {e}")
+            traceback.print_exc()
+        await asyncio.sleep(restricted_check_interval)
+
+
+restricted_check_inst: TaskWrapper | None = None
+
+
+def schedule_restricted_check():
+    global restricted_check_inst
+    if restricted_check_inst is not None:
+        restricted_check_inst.task.cancel()
+    restricted_check_inst = create_task(
+        restricted_check_job(), name="Restricted Check Job"
+    )
+
+
 @client.event
 async def on_ready():
     for guild in client.guilds:
@@ -576,8 +647,42 @@ async def on_ready():
     schedule_reddit_clear()
     schedule_rag_sync()
     schedule_comtress_check()
+    schedule_restricted_check()
 
     print("Ready.")
+
+
+@client.event
+async def on_member_join(member: discord.Member):
+    if member.bot:
+        return
+
+    guild = member.guild
+
+    restricted_role = client.restricted_roles.get(guild.id)
+    if not restricted_role:
+        return
+
+    try:
+        await member.add_roles(restricted_role, reason="Verification required")
+    except discord.Forbidden:
+        print(
+            f"Missing permissions to assign Restricted role to {member} in {guild.name}."
+        )
+    except discord.HTTPException as e:
+        print(f"Failed to assign Restricted role to {member}: {e}")
+
+    try:
+        await member.send(
+            f"Welcome to **{guild.name}**!\n\n"
+            f"To access the server, please complete verification within 10 minutes:\n"
+            f"{VERIFICATION_FORM_URL}"
+        )
+    except discord.Forbidden:
+        # User has DMs disabled or bot is blocked
+        pass
+    except discord.HTTPException as e:
+        print(f"Failed to DM verification info to {member}: {e}")
 
 
 bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
