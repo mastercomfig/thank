@@ -863,6 +863,12 @@ async def approve_command(
 
     guild = interaction.guild
 
+    if is_member_approved(guild.id, target_id):
+        await interaction.response.send_message(
+            f"{target_user} is already approved.", ephemeral=True
+        )
+        return
+
     member = guild.get_member(target_id)
     if not member:
         try:
