@@ -927,7 +927,9 @@ async def approve_command(
                     f"You have been approved in **{guild.name}**. If you were automatically kicked within the {VERIFICATION_TIMEOUT_MINUTES} minute timeout, you can now rejoin."
                 )
             except Exception:
-                pass
+                details.append("failed to notify user of approval")
+    else:
+        details.append("failed to find user to notify")
 
     if success:
         message_text = f"Approved {name_display}: {', '.join(details)}."
