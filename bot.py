@@ -882,7 +882,7 @@ async def approve_command(
                 did_something = True
                 try:
                     await member.remove_roles(
-                        restricted_role, reason=f"Approved by {interaction.user}"
+                        restricted_role, reason=f"Member is approved"
                     )
                     details.append("removed **Restricted** role")
                 except discord.Forbidden:
@@ -898,9 +898,7 @@ async def approve_command(
             if verified_role not in member.roles:
                 did_something = True
                 try:
-                    await member.add_roles(
-                        verified_role, reason=f"Approved by {interaction.user}"
-                    )
+                    await member.add_roles(verified_role, reason=f"Member is approved")
                     details.append("assigned **Verified** role")
                 except discord.Forbidden:
                     details.append(
@@ -918,6 +916,7 @@ async def approve_command(
             return
     else:
         add_approved_member(guild.id, target_id, approved_by=interaction.user.id)
+        details.append("approval queued for next join")
 
     name_display = f"<@!{target_id}>"
     if target_user:
