@@ -11,7 +11,7 @@ import aiohttp
 import cachetools
 import discord
 import profanity_check
-from discord import AllowedMentions, Intents
+from discord import AllowedMentions, Intents, app_commands
 from dotenv import load_dotenv
 from thefuzz import fuzz
 from tinydb import Query, TinyDB
@@ -52,6 +52,7 @@ mentions = AllowedMentions.none()
 class ThankBot(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.tree = app_commands.CommandTree(self)
         self.thank_channels: set[discord.TextChannel] = set()
         self.thank_pairs: dict[int, cachetools.TTLCache[int, discord.Message]] = {}
         self.reddit_channels: list[discord.TextChannel] = []
@@ -62,12 +63,16 @@ class ThankBot(discord.Client):
         self.comtress_players_roles: dict[int, discord.Role] = {}
         self.comtress_testers_roles: dict[int, discord.Role] = {}
         self.restricted_roles: dict[int, discord.Role] = {}
+        self.verified_roles: dict[int, discord.Role] = {}
         self.member_info_channels: dict[int, discord.TextChannel] = {}
         self.zero_players_since: datetime.datetime | None = (
             datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
         )
         self.latest_ping_messages: dict[int, discord.Message] = {}
         self.ended_session_messages: dict[int, discord.Message] = {}
+
+    async def setup_hook(self):
+        await self.tree.sync()
 
 
 client = ThankBot(
@@ -76,6 +81,48 @@ client = ThankBot(
 )
 
 db = TinyDB("thanks_db.json")
+approved_table = db.table("approved_members")
+
+
+def is_member_approved(guild_id: int, user_id: int) -> bool:
+    ApprovedQuery = Query()
+    return bool(
+        approved_table.search(
+            (ApprovedQuery.guild_id == guild_id) & (ApprovedQuery.user_id == user_id)
+        )
+    )
+
+
+def add_approved_member(guild_id: int, user_id: int, approved_by: int | None = None):
+    ApprovedQuery = Query()
+    existing = approved_table.search(
+        (ApprovedQuery.guild_id == guild_id) & (ApprovedQuery.user_id == user_id)
+    )
+    if not existing:
+        approved_table.insert(
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "approved_by": approved_by,
+                "approved_at": datetime.datetime.now(
+                    tz=datetime.timezone.utc
+                ).isoformat(),
+            }
+        )
+
+
+def remove_approved_member(guild_id: int, user_id: int):
+    ApprovedQuery = Query()
+    approved_table.remove(
+        (ApprovedQuery.guild_id == guild_id) & (ApprovedQuery.user_id == user_id)
+    )
+
+
+def is_moderator_or_admin(member: discord.Member) -> bool:
+    if member.guild_permissions.administrator or member.guild_permissions.manage_roles:
+        return True
+    return any(role.name == "Moderator" for role in member.roles)
+
 
 VERIFICATION_TIMEOUT_MINUTES = 10
 VERIFICATION_TIMEOUT = datetime.timedelta(minutes=VERIFICATION_TIMEOUT_MINUTES)
@@ -230,6 +277,10 @@ def collect_from_guild(guild: discord.Guild):
     restricted_role = discord.utils.find(lambda r: r.name == "Restricted", guild.roles)
     if restricted_role:
         client.restricted_roles[guild.id] = restricted_role
+
+    verified_role = discord.utils.find(lambda r: r.name == "Verified", guild.roles)
+    if verified_role:
+        client.verified_roles[guild.id] = verified_role
 
     member_info_channel = collect_channel_from_guild(
         guild, ChannelNameCollector("member-info")
@@ -596,6 +647,34 @@ async def check_restricted_members():
             if member.bot:
                 continue
 
+            if is_member_approved(guild.id, member.id):
+                try:
+                    await member.remove_roles(
+                        restricted_role, reason="Member is approved"
+                    )
+                except Exception:
+                    pass
+
+                verified_role = client.verified_roles.get(guild.id)
+                if not verified_role:
+                    verified_role = discord.utils.find(
+                        lambda r: r.name.lower() == "verified", guild.roles
+                    )
+                    if verified_role:
+                        client.verified_roles[guild.id] = verified_role
+
+                if verified_role and verified_role not in member.roles:
+                    try:
+                        await member.add_roles(
+                            verified_role, reason="Member is approved"
+                        )
+                    except Exception:
+                        pass
+
+                remove_approved_member(guild.id, member.id)
+
+                continue
+
             restricted_start = member.joined_at or now
 
             time_restricted = now - restricted_start
@@ -666,6 +745,19 @@ async def on_member_join(member: discord.Member):
 
     guild = member.guild
 
+    if is_member_approved(guild.id, member.id):
+        verified_role = client.verified_roles.get(guild.id)
+        if verified_role and verified_role not in member.roles:
+            try:
+                await member.add_roles(verified_role, reason="Approved member joined")
+            except discord.Forbidden:
+                print(
+                    f"Missing permissions to assign Verified role to {member} in {guild.name}."
+                )
+            except discord.HTTPException as e:
+                print(f"Failed to assign Verified role to {member}: {e}")
+        return
+
     restricted_role = client.restricted_roles.get(guild.id)
     if not restricted_role:
         return
@@ -710,6 +802,142 @@ async def on_member_join(member: discord.Member):
                 print(
                     f"Failed to send verification message in {member_info_channel.name} ({guild.name}): {e}"
                 )
+
+
+@client.tree.command(
+    name="approve",
+    description="Promote a user from Restricted to Verified",
+)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_roles=True)
+@app_commands.describe(
+    user="The member to approve (if currently in the server)",
+    user_id="The Discord User ID to approve (if not in the server)",
+)
+async def approve_command(
+    interaction: discord.Interaction,
+    user: discord.User | None = None,
+    user_id: str | None = None,
+):
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        await interaction.response.send_message(
+            "This command can only be used in a server.", ephemeral=True
+        )
+        return
+
+    if not is_moderator_or_admin(interaction.user):
+        await interaction.response.send_message(
+            "You do not have permission to use this command.", ephemeral=True
+        )
+        return
+
+    target_id: int | None = None
+    target_user: discord.User | None = None
+
+    if user is not None:
+        target_id = user.id
+        target_user = user
+    elif user_id is not None:
+        cleaned_id = user_id.strip("<@!> ")
+        try:
+            target_id = int(cleaned_id)
+        except ValueError:
+            await interaction.response.send_message(
+                f"Invalid user ID: `{user_id}`. Please provide a valid numeric Discord user ID.",
+                ephemeral=True,
+            )
+            return
+
+        target_user = client.get_user(target_id)
+        if not target_user:
+            try:
+                target_user = await client.fetch_user(target_id)
+            except Exception:
+                target_user = None
+    else:
+        await interaction.response.send_message(
+            "Please specify a user to approve (either via the `user` picker or by providing a `user_id`).",
+            ephemeral=True,
+        )
+        return
+
+    guild = interaction.guild
+
+    member = guild.get_member(target_id)
+    if not member:
+        try:
+            member = await guild.fetch_member(target_id)
+        except Exception:
+            member = None
+
+    details = []
+    success = True
+    if member:
+        restricted_role = client.restricted_roles.get(guild.id)
+        verified_role = client.verified_roles.get(guild.id)
+        did_something = not restricted_role and not verified_role
+
+        if restricted_role:
+            if restricted_role in member.roles:
+                did_something = True
+                try:
+                    await member.remove_roles(
+                        restricted_role, reason=f"Approved by {interaction.user}"
+                    )
+                    details.append("removed **Restricted** role")
+                except discord.Forbidden:
+                    details.append(
+                        "failed to remove Restricted role (missing permissions)"
+                    )
+                    success = False
+                except discord.HTTPException as e:
+                    details.append(f"failed to remove Restricted role ({e})")
+                    success = False
+
+        if verified_role:
+            if verified_role not in member.roles:
+                did_something = True
+                try:
+                    await member.add_roles(
+                        verified_role, reason=f"Approved by {interaction.user}"
+                    )
+                    details.append("assigned **Verified** role")
+                except discord.Forbidden:
+                    details.append(
+                        "failed to assign Verified role (missing permissions)"
+                    )
+                    success = False
+                except discord.HTTPException as e:
+                    details.append(f"failed to assign Verified role ({e})")
+                    success = False
+
+        if not did_something:
+            await interaction.response.send_message(
+                f"{target_user} is already Verified.", ephemeral=True
+            )
+            return
+    else:
+        add_approved_member(guild.id, target_id, approved_by=interaction.user.id)
+
+    name_display = f"<@!{target_id}>"
+    if target_user:
+        name_display = target_user.mention
+        if success:
+            try:
+                await target_user.send(
+                    f"You have been approved in **{guild.name}**. If you were automatically kicked within the {VERIFICATION_TIMEOUT_MINUTES} minute timeout, you can now rejoin."
+                )
+            except Exception:
+                pass
+
+    if success:
+        message_text = f"Approved {name_display}: {', '.join(details)}."
+    else:
+        message_text = f"Failed to approve {name_display}: {', '.join(details)}."
+
+    await interaction.response.send_message(
+        message_text, allowed_mentions=AllowedMentions.none()
+    )
 
 
 bad_chars = set("/{}\\%$[]#()-=<>|^@`*_")
